@@ -14,6 +14,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.google.android.material.textfield.TextInputEditText;
+
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.OkHttpClient;
@@ -28,7 +30,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int SMS_PERMISSION_CODE = 101;
     private Button sendSmsButton, fetchAndSendButton;
-    private EditText urlInputField;
+    private EditText urlInputField, bulkMessageInput;
     private OkHttpClient client;
 
     @Override
@@ -39,29 +41,35 @@ public class MainActivity extends AppCompatActivity {
         sendSmsButton = findViewById(R.id.sendSmsButton);
         fetchAndSendButton = findViewById(R.id.fetchAndSendButton);
         urlInputField = findViewById(R.id.urlInputField);
+        bulkMessageInput = findViewById(R.id.bulkMessageInput);
 
-        client = new OkHttpClient(); // Initialize OkHttp client
+        client = new OkHttpClient();
 
-        checkPermission(); // Check for SMS permission
+        checkPermission();
 
-        // Send SMS Button - Manually entered numbers and messages
         sendSmsButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                EditText phoneNumberInput = findViewById(R.id.phoneNumberInput);
-                EditText messageInput = findViewById(R.id.messageInput);
-                String phoneNumber = phoneNumberInput.getText().toString();
-                String message = messageInput.getText().toString();
+                String bulkInput = bulkMessageInput.getText().toString().trim();
+                if (bulkInput.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "Please enter messages to send.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
 
-                if (!phoneNumber.isEmpty() && !message.isEmpty()) {
-                    sendSms(phoneNumber, message);
-                } else {
-                    Toast.makeText(MainActivity.this, "Please enter a valid phone number and message.", Toast.LENGTH_SHORT).show();
+                String[] lines = bulkInput.split("\n");
+                for (String line : lines) {
+                    if (line.contains("|")) {
+                        String[] parts = line.split("\\|", 2);
+                        if (parts.length == 2) {
+                            String number = parts[0].trim();
+                            String message = parts[1].trim();
+                            sendSms(number, message);
+                        }
+                    }
                 }
             }
         });
 
-        // Fetch SMS data from the server and send them
         fetchAndSendButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -70,14 +78,12 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // Check and request SMS permission
     private void checkPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_CODE);
         }
     }
 
-    // Handle the result of permission request
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -90,50 +96,31 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Method to send SMS manually
-// Method to send SMS manually
     private void sendSms(String phoneNumber, String message) {
         try {
             SmsManager smsManager = SmsManager.getDefault();
             smsManager.sendTextMessage(phoneNumber, null, message, null, null);
-            Log.d("SMS", "SMS sent to: " + phoneNumber);  // Log message
+            Log.d("SMS", "SMS sent to: " + phoneNumber);
 
-            // Ensure the Toast runs on the main thread
-            runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "SMS Sent!", Toast.LENGTH_SHORT).show();
-            });
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Sent: " + phoneNumber, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
-            Log.e("SMS", "SMS failed: " + e.getMessage());  // Log error
-
-            // Ensure the Toast runs on the main thread
-            runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "SMS failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            });
+            Log.e("SMS", "SMS failed: " + e.getMessage());
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed: " + phoneNumber, Toast.LENGTH_LONG).show());
         }
     }
 
-
-    // Fetch SMS data from the server
     private void fetchSmsDataFromServer() {
-        String url = urlInputField.getText().toString(); // URL from input field
+        String url = urlInputField.getText().toString();
         if (url.isEmpty()) {
             Toast.makeText(this, "Please enter a valid URL.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Log.d("SMS", "Fetching SMS data from: " + url);  // Log URL
-        // Create the HTTP request
         Request request = new Request.Builder().url(url).build();
-
-        // Execute the request asynchronously
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                // Ensure that Toasts run on the main thread
-                runOnUiThread(() -> {
-                    Log.e("SMS", "Failed to fetch SMS data: " + e.getMessage());  // Log failure
-                    Toast.makeText(MainActivity.this, "Failed to fetch SMS data: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed to fetch SMS data: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
 
             @Override
@@ -143,42 +130,24 @@ public class MainActivity extends AppCompatActivity {
                     List<String> phoneNumbers = new ArrayList<>();
                     List<String> messages = new ArrayList<>();
 
-                    // Parse the response data to extract phone numbers and messages
                     String[] entries = responseData.split("\n");
                     for (String entry : entries) {
                         if (entry.contains("|")) {
-                            String[] parts = entry.split("\\|");
-                            String number = parts[0].trim();
-                            String message = parts[1].trim();
-
-                            phoneNumbers.add(number);
-                            messages.add(message);
-
-                            Log.d("SMS", "Parsed: " + number + " - " + message);  // Log parsed data
+                            String[] parts = entry.split("\\|", 2);
+                            phoneNumbers.add(parts[0].trim());
+                            messages.add(parts[1].trim());
                         }
                     }
 
-                    // Send SMS to all phone numbers
                     for (int i = 0; i < phoneNumbers.size(); i++) {
-                        String phoneNumber = phoneNumbers.get(i);
-                        String message = messages.get(i);
-                        sendSms(phoneNumber, message); // Send SMS
+                        sendSms(phoneNumbers.get(i), messages.get(i));
                     }
 
-                    // Ensure that Toasts run on the main thread
-                    runOnUiThread(() -> {
-                        Log.d("SMS", "SMS sent to all numbers.");  // Log success
-                        Toast.makeText(MainActivity.this, "SMS sent to all numbers.", Toast.LENGTH_SHORT).show();
-                    });
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "SMS sent to all numbers.", Toast.LENGTH_SHORT).show());
                 } else {
-                    // Ensure that Toasts run on the main thread
-                    runOnUiThread(() -> {
-                        Log.e("SMS", "Failed to fetch SMS data.");  // Log failure
-                        Toast.makeText(MainActivity.this, "Failed to fetch SMS data.", Toast.LENGTH_SHORT).show();
-                    });
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed to fetch SMS data.", Toast.LENGTH_SHORT).show());
                 }
             }
         });
     }
-
 }
